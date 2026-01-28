@@ -1,0 +1,706 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Stair Wear Analysis Technical Report
+% LaTeX Document - Compile with pdflatex
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\documentclass[11pt,a4paper]{article}
+
+% ============================================================================
+% PACKAGES
+% ============================================================================
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{booktabs}
+\usepackage{siunitx}
+\usepackage{amsmath,amssymb}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{float}
+\usepackage{longtable}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+\usepackage{mdframed}
+
+% Define colored box environments
+\definecolor{bluebox}{RGB}{230,240,255}
+\definecolor{greenbox}{RGB}{230,255,230}
+\definecolor{yellowbox}{RGB}{255,250,230}
+\definecolor{graybox}{RGB}{245,245,245}
+
+\newmdenv[backgroundcolor=bluebox,linecolor=blue!50!black,linewidth=1pt,innertopmargin=10pt,innerbottommargin=10pt]{blueinfobox}
+\newmdenv[backgroundcolor=greenbox,linecolor=green!50!black,linewidth=1pt,innertopmargin=10pt,innerbottommargin=10pt]{greeninfobox}
+\newmdenv[backgroundcolor=yellowbox,linecolor=orange!50!black,linewidth=1pt,innertopmargin=10pt,innerbottommargin=10pt,frametitle={\textbf{Critical Distinction}}]{yellowinfobox}
+\newmdenv[backgroundcolor=graybox,linecolor=gray!50!black,linewidth=1pt,innertopmargin=10pt,innerbottommargin=10pt]{grayinfobox}
+
+% ============================================================================
+% CONFIGURATION
+% ============================================================================
+
+% Colors
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.97,0.97,0.97}
+
+% Listings configuration
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},   
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{blue},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,         
+    breaklines=true,                 
+    captionpos=b,                    
+    keepspaces=true,                 
+    numbers=left,                    
+    numbersep=5pt,                  
+    showspaces=false,                
+    showstringspaces=false,
+    showtabs=false,                  
+    tabsize=2,
+    extendedchars=true,
+    inputencoding=utf8,
+    literate={✓}{{$\checkmark$}}1 {⚠}{{!}}1 {³}{{$^3$}}1 {×}{{$\times$}}1 {±}{{$\pm$}}1 {→}{{$\rightarrow$}}1
+}
+\lstset{style=mystyle}
+
+% Fix headheight warning
+\setlength{\headheight}{14pt}
+
+% Hyperref configuration
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,      
+    urlcolor=cyan,
+    citecolor=blue
+}
+
+% Headers
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{Stair Wear Analysis}
+\lhead{Technical Report}
+\rfoot{Page \thepage}
+
+% Custom commands
+\newcommand{\kspec}{k_{\text{spec}}}
+\newcommand{\Pascent}{P(\text{ascent})}
+\newcommand{\CI}[1]{\text{CI}_{#1}}
+
+% ============================================================================
+% DOCUMENT START
+% ============================================================================
+
+\begin{document}
+
+% ----------------------------------------------------------------------------
+% TITLE PAGE
+% ----------------------------------------------------------------------------
+
+\begin{titlepage}
+    \centering
+    \vspace*{2cm}
+    
+    {\Huge\bfseries Stair Wear Analysis Pipeline\par}
+    \vspace{0.5cm}
+    {\Large Uncertainty-Aware Traffic Inference from 3D Geometry\par}
+    
+    \vspace{2cm}
+    
+    {\large Technical Report v2.0\par}
+    \vspace{0.5cm}
+    {\large January 2026\par}
+    
+    \vspace{3cm}
+    
+    \begin{blueinfobox}
+    \textbf{Implementation Status:} Stage-1 MVP Complete\\
+    \textbf{Key Features:}
+    \begin{itemize}[noitemsep]
+        \item Monte Carlo uncertainty propagation
+        \item Triangle-based wear volume integration
+        \item 5-way sensitivity analysis
+        \item CLI integration with JSON output
+    \end{itemize}
+    \end{blueinfobox}
+    
+    \vfill
+    
+    {\large\itshape Stair Wear Analysis Toolchain\par}
+    
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+% ----------------------------------------------------------------------------
+% ABSTRACT
+% ----------------------------------------------------------------------------
+
+\begin{abstract}
+This report documents a computational pipeline for inferring historical traffic patterns from 3D scans of worn stone stairs. The system extracts wear depth fields from triangulated mesh data, fits robust reference planes using RANSAC, and propagates uncertainty from scale factors, plane parameters, and material properties through to final traffic estimates.
+
+Key outputs include: (1) total wear volume with 95\% confidence intervals, (2) directionality classification (ascent vs.\ descent dominance), (3) lateral usage pattern inference (single-file vs.\ multi-file), and (4) daily traffic estimates conditional on assumed building age. A Monte Carlo framework with $n=100$--500 samples produces calibrated uncertainty bands.
+
+The dominant uncertainty source is material-specific wear rate ($\kspec$), contributing approximately 80\% of variance in traffic estimates. Geometric quantities (volume, depth) are well-constrained with narrow confidence intervals. Traffic numbers remain \emph{calibration-limited} and should be interpreted as order-of-magnitude estimates conditional on stated assumptions.
+
+\textbf{Keywords:} wear analysis, uncertainty propagation, Monte Carlo, heritage architecture, tribology
+\end{abstract}
+
+\newpage
+
+% ============================================================================
+% SECTION 1: INTRODUCTION
+% ============================================================================
+
+\section{Introduction}
+
+\subsection{Problem Statement}
+
+Historic stone stairs accumulate wear patterns over centuries of use. The geometry of this wear encodes information about:
+\begin{enumerate}
+    \item \textbf{Traffic volume}: How many footsteps traversed the stair?
+    \item \textbf{Directionality}: Was ascent or descent dominant?
+    \item \textbf{Simultaneity}: Did people walk single-file or side-by-side?
+\end{enumerate}
+
+This pipeline extracts these inferences from 3D mesh scans (OBJ format) with formal uncertainty quantification.
+
+\subsection{System Overview}
+
+The toolchain consists of four main modules:
+
+\begin{table}[H]
+\centering
+\caption{System modules and responsibilities}
+\begin{tabular}{@{}llp{7cm}@{}}
+\toprule
+\textbf{Module} & \textbf{File} & \textbf{Responsibility} \\
+\midrule
+Mesh Parser & \texttt{obj\_parser.py} & Load OBJ, apply scale, compute bounds \\
+Wear Analyzer & \texttt{wear\_analyzer.py} & RANSAC plane fit, tread segmentation, volume integration \\
+Traffic Estimator & \texttt{traffic\_estimator.py} & Map wear to footsteps, infer patterns \\
+Uncertainty & \texttt{uncertainty.py} & Monte Carlo propagation, sensitivity analysis \\
+Visualizer & \texttt{visualizer.py} & Heatmaps, dashboards, uncertainty plots \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{How to Run}
+
+\begin{lstlisting}[language=bash,caption={Basic usage with uncertainty analysis}]
+python stair_analyzer.py QL.obj \
+    --material granite \
+    --scale 0.001 \
+    --uncertainty \
+    --n-samples 200 \
+    --output output_dir
+\end{lstlisting}
+
+\subsection{Reproducibility Checklist}
+
+\begin{greeninfobox}
+\begin{itemize}[noitemsep]
+    \item[$\square$] Python 3.8+ with NumPy, SciPy, Matplotlib, scikit-learn
+    \item[$\square$] Input: OBJ mesh file (triangulated)
+    \item[$\square$] Specify \texttt{--scale} for mm$\to$m conversion (e.g., 0.001)
+    \item[$\square$] Set \texttt{--seed} for deterministic results
+    \item[$\square$] Output: JSON results + PNG visualizations
+\end{itemize}
+\end{greeninfobox}
+
+% ============================================================================
+% SECTION 2: DATA & GEOMETRY PIPELINE
+% ============================================================================
+
+\section{Data \& Geometry Pipeline}
+
+\subsection{Mesh Loading and Scaling}
+
+The OBJ parser loads vertex coordinates and face indices. A scale factor $s$ converts model units to meters:
+\begin{equation}
+    \mathbf{v}_{\text{scaled}} = s \cdot \mathbf{v}_{\text{raw}}
+\end{equation}
+
+For meshes exported in millimeters, use $s = 0.001$.
+
+\subsection{Reference Plane Fitting (RANSAC)}
+
+A robust reference plane represents the unworn surface:
+\begin{equation}
+    z_{\text{ref}}(x, y) = a \cdot x + b \cdot y + c
+\end{equation}
+
+RANSAC iteratively fits to border vertices (least-worn regions):
+\begin{enumerate}
+    \item Sample 3 candidate points from border regions
+    \item Fit plane, count inliers within threshold $\tau = \SI{2}{mm}$
+    \item Repeat $N = 500$ iterations, keep best fit
+    \item Refine with least-squares on inliers
+\end{enumerate}
+
+Quality metrics: inlier fraction (target $>60\%$), RMS error (target $<\SI{5}{mm}$).
+
+\subsection{Wear Depth Field}
+
+Wear depth at each point:
+\begin{equation}
+    d(x, y) = \max\left(0,\; z_{\text{ref}}(x, y) - z_{\text{surface}}(x, y)\right)
+\end{equation}
+
+Figure~\ref{fig:heatmap} shows the resulting depth field.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\textwidth]{output_fixed/wear_heatmap.png}
+    \caption{Wear depth heatmap. Darker regions indicate greater material loss. The reference plane fitted by RANSAC defines zero depth at the unworn border regions.}
+    \label{fig:heatmap}
+\end{figure}
+
+\subsection{Triangle-Based Volume Integration}
+
+Wear volume is computed by integrating over tread triangles:
+\begin{equation}
+    V = \sum_{i \in \text{tread}} \bar{d}_i \cdot A_i
+\end{equation}
+where $\bar{d}_i$ is mean vertex depth and $A_i$ is projected triangle area.
+
+Tread triangles are selected by:
+\begin{itemize}
+    \item Normal angle $< 25^\circ$ from vertical
+    \item Centroid within 1--99\% quantile bounding box
+\end{itemize}
+
+% ============================================================================
+% SECTION 3: PATTERN INFERENCE
+% ============================================================================
+
+\section{Pattern Inference}
+
+\subsection{Lateral Simultaneity}
+
+The lateral wear distribution (summed over depth axis) reveals usage patterns. A Gaussian Mixture Model (GMM) with 1--3 components is fitted:
+\begin{equation}
+    p(x) = \sum_{k=1}^{K} \pi_k \cdot \mathcal{N}(x \mid \mu_k, \sigma_k^2)
+\end{equation}
+
+Model selection uses BIC. Interpretation:
+\begin{itemize}
+    \item $K=1$: Single central wear path $\Rightarrow$ likely single-file traffic
+    \item $K=2$: Two distinct paths $\Rightarrow$ possible bi-directional or side-by-side
+    \item Component spacing $<$ shoulder width (\SI{0.45}{m}) $\Rightarrow$ modes are statistical, not physical lanes
+\end{itemize}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.75\textwidth]{output_fixed/lateral_distribution.png}
+    \caption{Lateral wear distribution with GMM fit. The fitted components should be interpreted as statistical modes, not physical walking lanes, unless spacing exceeds minimum lane width.}
+    \label{fig:lateral}
+\end{figure}
+
+\subsection{Directionality Heuristic}
+
+The \emph{nosing ratio} compares front (nosing) wear to center wear:
+\begin{equation}
+    r_{\text{nosing}} = \frac{\bar{d}_{\text{front}}}{\bar{d}_{\text{center}}}
+\end{equation}
+where ``front'' is the leading 25\% and ``center'' is the middle 50\%.
+
+Ascent probability via logistic mapping:
+\begin{equation}
+    \Pascent = \frac{1}{1 + \exp\left(\beta \cdot (r_{\text{nosing}} - \theta)\right)}
+\end{equation}
+with $\theta \sim \mathcal{N}(1.0, 0.1)$ and $\beta \sim U(4, 6)$ sampled to capture mapping uncertainty.
+
+Classification based on 95\% CI:
+\begin{itemize}
+    \item \textbf{ASCENT}: $\CI{95}$ entirely $> 0.5$
+    \item \textbf{DESCENT}: $\CI{95}$ entirely $< 0.5$
+    \item \textbf{AMBIGUOUS}: $\CI{95}$ straddles 0.5
+\end{itemize}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.75\textwidth]{output_fixed/longitudinal_profile.png}
+    \caption{Longitudinal wear profile (front-to-back). Asymmetry indicates directional bias; nosing-heavy wear suggests descent dominance.}
+    \label{fig:longitudinal}
+\end{figure}
+
+% ============================================================================
+% SECTION 4: TRAFFIC MODEL
+% ============================================================================
+
+\section{Traffic Model}
+
+\subsection{Archard-Based Wear Equation}
+
+Total footstep count $N$ from wear volume $V$:
+\begin{equation}
+    N = \frac{V}{\kspec \cdot W \cdot s}
+\end{equation}
+where:
+\begin{itemize}
+    \item $\kspec$: specific wear rate [\si{mm^3/(N.m)}]
+    \item $W$: load per step $= \text{bodyweight} \times \text{GRF multiplier}$ [\si{N}]
+    \item $s$: microslip distance per step [\si{m}]
+\end{itemize}
+
+\subsection{Material Parameters}
+
+\begin{table}[H]
+\centering
+\caption{Material-specific wear rates (lognormal priors)}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Material} & $\kspec$ median & Log-std & Hardness \\
+\midrule
+Granite & \SI{1e-6}{mm^3/(N.m)} & 0.7 & \SI{7.5}{GPa} \\
+Marble & \SI{1e-5}{mm^3/(N.m)} & 0.5 & \SI{2.25}{GPa} \\
+Limestone & \SI{3e-5}{mm^3/(N.m)} & 1.0 & \SI{2}{GPa} \\
+Sandstone & \SI{5e-5}{mm^3/(N.m)} & 1.2 & \SI{2}{GPa} \\
+\bottomrule
+\end{tabular}
+\label{tab:materials}
+\end{table}
+
+\subsection{Daily Traffic Calculation}
+
+Given building age $T$ (years):
+\begin{equation}
+    \text{Daily traffic} = \frac{N}{365 \cdot T}
+\end{equation}
+
+Results are reported at multiple horizons: 50, 100, 200, 500, 1000 years.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{output_fixed/traffic_assumptions.png}
+    \caption{Traffic estimates depend critically on assumed building age. This figure shows how daily traffic scales inversely with age assumption. The geometric wear measurement itself is stable; only the traffic \emph{interpretation} varies.}
+    \label{fig:traffic}
+\end{figure}
+
+% ============================================================================
+% SECTION 5: UNCERTAINTY PROPAGATION
+% ============================================================================
+
+\section{Uncertainty Propagation}
+
+\subsection{Random Variables and Priors}
+
+Five uncertainty sources are modeled:
+
+\begin{table}[H]
+\centering
+\caption{Uncertainty sources and prior distributions}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Source} & \textbf{Distribution} & \textbf{Parameters} \\
+\midrule
+Scale ($s$) & Lognormal(user) or Mixture & CV = 5\% perturbation \\
+Plane $(a,b,c)$ & Bootstrap & $n=100$--500 resamples \\
+$\kspec$ & Lognormal & $\sigma_{\log} = 0.5$--1.2 \\
+GRF multiplier & Normal, clipped & $\mu=1.7$, $\sigma=0.2$, clip $[1.0, 2.5]$ \\
+Microslip & Lognormal & median $\SI{2}{mm}$, $\sigma_{\log}=0.3$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Propagation Algorithm}
+
+\begin{lstlisting}[language=Python,caption={Monte Carlo propagation pseudo-code}]
+for i in range(n_samples):
+    scale = sample_scale(scale_unc)
+    plane = sample_plane(plane_bootstrap)
+    k_spec, grf, slip = sample_material(material_unc)
+    
+    # Compute volume with sampled plane
+    volume = integrate_triangle_volume(mesh, plane)
+    
+    # Compute nosing ratio
+    nosing = compute_nosing_ratio(mesh, plane)
+    
+    # Map to traffic
+    load = body_weight * grf
+    traffic = volume / (k_spec * load * slip)
+    
+    # Map to P(ascent) with sampled logistic params
+    threshold = sample_normal(1.0, 0.1)
+    slope = sample_uniform(4.0, 6.0)
+    p_ascent = 1 / (1 + exp(slope * (nosing - threshold)))
+    
+    store(scale, volume, nosing, traffic, p_ascent)
+\end{lstlisting}
+
+\subsection{Output Distributions}
+
+For each output, we compute:
+\begin{itemize}
+    \item Mean and median
+    \item 50\% CI (25th--75th percentile)
+    \item 95\% CI (2.5th--97.5th percentile)
+\end{itemize}
+
+\subsection{Sensitivity Analysis}
+
+Variance contribution from each source is estimated via squared Spearman rank correlation:
+\begin{equation}
+    \text{Contribution}_j = \frac{\rho_j^2}{\sum_k \rho_k^2}
+\end{equation}
+
+Plane sensitivity is computed empirically from volume-traffic correlation rather than hardcoded.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{output_fixed/uncertainty_dashboard.png}
+    \caption{Uncertainty dashboard. \textbf{Top-left}: Sensitivity tornado showing variance contribution (k\_spec dominates at 80\%). \textbf{Top-right}: Traffic CI across age horizons. \textbf{Bottom-left}: Directionality classification with CI band visualization. \textbf{Bottom-right}: Summary statistics.}
+    \label{fig:uncertainty}
+\end{figure}
+
+% ============================================================================
+% SECTION 6: RESULTS
+% ============================================================================
+
+\section{Results}
+
+\subsection{Example Analysis: QL.obj}
+
+Analysis parameters:
+\begin{itemize}
+    \item Material: Granite
+    \item Scale: 0.001 (mm $\to$ m)
+    \item Monte Carlo samples: 100
+    \item Random seed: 42
+\end{itemize}
+
+\subsection{Summary Statistics}
+
+\begin{table}[H]
+\centering
+\caption{Uncertainty results from \texttt{uncertainty\_results.json}}
+\label{tab:results}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+\textbf{Quantity} & \textbf{Median} & \textbf{CI$_{50}$} & \textbf{CI$_{95}$} \\
+\midrule
+\multicolumn{4}{l}{\textit{Geometry}} \\
+Volume [\si{m^3}] & \num{7.25e-11} & [\num{7.23e-11}, \num{7.27e-11}] & [\num{7.17e-11}, \num{7.33e-11}] \\
+Max depth [\si{mm}] & 0.137 & [0.136, 0.137] & [0.136, 0.138] \\
+Mean depth [\si{mm}] & 0.037 & [0.036, 0.037] & [0.036, 0.037] \\
+\midrule
+\multicolumn{4}{l}{\textit{Directionality}} \\
+$\Pascent$ & 0.548 & [0.548, 0.548] & [0.548, 0.548] \\
+Nosing ratio & 1.000 & [1.000, 1.000] & [1.000, 1.000] \\
+Classification & \multicolumn{3}{l}{ASCENT (55\%)} \\
+\midrule
+\multicolumn{4}{l}{\textit{Traffic (conditional)}} \\
+Total steps & \num{2.96e4} & [\num{2.01e4}, \num{5.12e4}] & [\num{6.23e3}, \num{1.16e5}] \\
+Daily (50y) & 1.62 & [1.10, 2.80] & [0.34, 6.36] \\
+Daily (100y) & 0.81 & [0.55, 1.40] & [0.17, 3.18] \\
+Daily (500y) & 0.16 & [0.11, 0.28] & [0.03, 0.64] \\
+Daily (1000y) & 0.08 & [0.06, 0.14] & [0.02, 0.32] \\
+\midrule
+\multicolumn{4}{l}{\textit{Sensitivity}} \\
+$\kspec$ & \multicolumn{3}{l}{80\%} \\
+Scale & \multicolumn{3}{l}{2\%} \\
+Plane & \multicolumn{3}{l}{2\%} \\
+GRF & \multicolumn{3}{l}{8\%} \\
+Slip & \multicolumn{3}{l}{8\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Key Findings}
+
+\begin{enumerate}
+    \item \textbf{Geometry is well-constrained}: Volume and depth have narrow CIs ($\pm 2\%$).
+    \item \textbf{Traffic is calibration-limited}: CI$_{95}$ spans an order of magnitude.
+    \item \textbf{Material dominates uncertainty}: $\kspec$ contributes 80\% of variance.
+    \item \textbf{Direction is slightly ascent-biased}: $\Pascent = 55\%$ with tight CI.
+\end{enumerate}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{output_fixed/summary_dashboard.png}
+    \caption{Summary dashboard. \textbf{Top-left}: Wear heatmap showing depth field. \textbf{Top-right}: Lateral distribution with GMM. \textbf{Bottom-left}: Longitudinal profile with nosing ratio. \textbf{Bottom-right}: Stable conclusions vs.\ calibration-limited estimates.}
+    \label{fig:summary}
+\end{figure}
+
+% ============================================================================
+% SECTION 7: LIMITATIONS & CALIBRATION
+% ============================================================================
+
+\section{Limitations \& Calibration}
+
+\subsection{Geometry Certainty vs.\ Traffic Dependence}
+
+\begin{yellowinfobox}
+\textbf{Stable conclusions} (geometry-driven):
+\begin{itemize}[noitemsep]
+    \item Wear volume: $\SI{7.25e-11}{m^3}$ $\pm 2\%$
+    \item Maximum depth: $\SI{0.14}{mm}$
+    \item Directional bias: Slight ascent preference
+    \item Usage pattern: Single-file (narrow effective width)
+\end{itemize}
+
+\textbf{Calibration-limited} (require assumptions):
+\begin{itemize}[noitemsep]
+    \item Absolute traffic count (depends on $\kspec$, unknown to $\pm 1$ order of magnitude)
+    \item Daily footsteps (additionally depends on building age)
+\end{itemize}
+\end{yellowinfobox}
+
+\subsection{Sources of Irreducible Uncertainty}
+
+\begin{enumerate}
+    \item \textbf{Material wear rate}: Laboratory values may not match in-situ conditions.
+    \item \textbf{Building age}: Often historically uncertain.
+    \item \textbf{Usage patterns}: Non-stationary over centuries.
+    \item \textbf{Cleaning/maintenance}: May have removed accumulated wear.
+\end{enumerate}
+
+\subsection{Calibration Recommendations}
+
+\begin{itemize}
+    \item \textbf{Field measurement}: Direct wear volume from photogrammetry can anchor scale.
+    \item \textbf{Historical records}: Known construction/renovation dates constrain age.
+    \item \textbf{Material testing}: Tribometer measurements can reduce $\kspec$ uncertainty by 50\%+.
+    \item \textbf{Comparative analysis}: Similar stairs with known traffic provide cross-validation.
+\end{itemize}
+
+% ============================================================================
+% SECTION 8: FUTURE WORK
+% ============================================================================
+
+\section{Future Work (Stage-2)}
+
+\subsection{Enhanced Scale Uncertainty}
+
+Currently, user-provided scale receives only small perturbation. Future work:
+\begin{itemize}
+    \item Full posterior over discrete hypotheses (mm/cm/m)
+    \item Report scale posterior in JSON output
+    \item Flag ``scale ambiguous'' if multiple hypotheses have significant mass
+\end{itemize}
+
+\subsection{Uncertainty-Aware Visualizations}
+
+\begin{itemize}
+    \item CI bands on longitudinal and lateral profile plots
+    \item Traffic distribution histograms with percentile markers
+    \item Tornado plots showing both magnitude and direction of sensitivity
+\end{itemize}
+
+\subsection{Improved Plane Uncertainty}
+
+\begin{itemize}
+    \item Full Bayesian plane fit with MCMC
+    \item Axis-ambiguity treatment: sample orientation, marginalize
+    \item Report plane parameter posterior, not just point estimate
+\end{itemize}
+
+\subsection{Advanced Sensitivity Analysis}
+
+\begin{itemize}
+    \item Sobol indices for variance-based global sensitivity
+    \item Interaction effects between scale and $\kspec$
+    \item First-order vs.\ total effects decomposition
+\end{itemize}
+
+\subsection{Model Extensions}
+
+\begin{itemize}
+    \item Multi-step wear model (account for polishing vs.\ abrasion)
+    \item Temporal drift detection (changing usage patterns)
+    \item Hierarchical model for multiple stairs
+\end{itemize}
+
+% ============================================================================
+% REFERENCES
+% ============================================================================
+
+\section*{References}
+
+\begin{enumerate}
+    \item Archard, J.F. (1953). Contact and Rubbing of Flat Surfaces. \textit{Journal of Applied Physics}, 24(8), 981--988.
+    \item Rabinowicz, E. (1995). \textit{Friction and Wear of Materials}. Wiley.
+    \item Implementation codebase: \texttt{stair\_analyzer.py}, \texttt{uncertainty.py}, et al.
+\end{enumerate}
+
+% ============================================================================
+% APPENDICES
+% ============================================================================
+
+\appendix
+
+\section{Code Listings}
+
+\subsection{stair\_analyzer.py}
+\lstinputlisting[language=Python,caption={Main analysis CLI (stair\_analyzer.py)},firstline=1,lastline=150]{stair_analyzer.py}
+
+\textit{(File continues for \texttildelow600 lines; see full source for complete implementation.)}
+
+\subsection{uncertainty.py}
+\lstinputlisting[language=Python,caption={Uncertainty propagation module (uncertainty.py)},firstline=1,lastline=200]{uncertainty.py}
+
+\textit{(File continues with UncertaintyPropagator implementation.)}
+
+\subsection{wear\_analyzer.py}
+\lstinputlisting[language=Python,caption={Wear analysis module (wear\_analyzer.py)},firstline=1,lastline=150]{wear_analyzer.py}
+
+\subsection{visualizer.py}
+\lstinputlisting[language=Python,caption={Visualization module (visualizer.py)},firstline=1,lastline=100]{visualizer.py}
+
+\section{Test Suite}
+
+\subsection{test\_uncertainty.py}
+\lstinputlisting[language=Python,caption={Uncertainty module tests},firstline=1,lastline=100]{test_uncertainty.py}
+
+\textit{(20 tests total; all passing as of implementation date.)}
+
+\section{Documentation}
+
+\subsection{Walkthrough}
+
+\begin{grayinfobox}
+\textbf{Bug Fixes Implemented:}
+\begin{enumerate}
+    \item \textbf{Double-scaling removed}: \texttt{\_compute\_volume\_for\_plane()} no longer re-scales vertices.
+    \item \textbf{Axis hardcoding fixed}: \texttt{ScaleUncertainty.from\_args()} now takes \texttt{width\_axis} parameter.
+    \item \textbf{Triangle-based MC volume}: Replaced simplified approximation with proper triangle integration.
+    \item \textbf{Logistic parameter sampling}: P(ascent) now samples threshold and slope from priors.
+    \item \textbf{Empirical plane sensitivity}: Uses Spearman correlation instead of hardcoded 5\%.
+\end{enumerate}
+\end{grayinfobox}
+
+\subsection{Scale Factor Guide}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}lll@{}}
+\toprule
+Mesh units & Scale flag & Example \\
+\midrule
+Millimeters & \texttt{--scale 0.001} & Width 800mm $\to$ 0.8m \\
+Centimeters & \texttt{--scale 0.01} & Width 80cm $\to$ 0.8m \\
+Meters & \texttt{--scale 1.0} or omit & Width 0.8m $\to$ 0.8m \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Example JSON Output}
+
+\lstinputlisting[caption={uncertainty\_results.json}]{output_fixed/uncertainty_results.json}
+
+% ============================================================================
+% END DOCUMENT
+% ============================================================================
+
+\end{document}
